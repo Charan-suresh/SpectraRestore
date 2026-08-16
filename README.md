@@ -107,10 +107,3 @@ python -m src.model
 python scripts/smoke_test.py
 ```
 
-The smoke test needs no dataset. It checks model shapes, a training step, and the inference path.
-
-## Supporting material
-
-- [Detailed design notes](SOLUTION.md)
-- [Hackathon presentation](slides/TeamName_KLA_PS01.pptx)
-- [Colab notebook](SpectraRestore_Colab.ipynb)
