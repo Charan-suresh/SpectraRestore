@@ -17,7 +17,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 # allow `python -m src.train` and `python src/train.py`
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,7 +70,7 @@ def validate(model: nn.Module, loader, device: torch.device, use_lpips: bool = T
     for batch in loader:
         deg = batch["degraded"].to(device, non_blocking=True)
         gt = batch["gt"].to(device, non_blocking=True)
-        with autocast(enabled=device.type == "cuda", dtype=torch.bfloat16):
+        with autocast(device_type=device.type, enabled=device.type == "cuda", dtype=torch.bfloat16):
             pred = model(deg)
         # match spatial size if needed
         if pred.shape[-2:] != gt.shape[-2:]:
@@ -146,7 +146,7 @@ def main() -> None:
         criterion.lpips.lpips.to(device)
 
     optim = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.9), weight_decay=1e-4)
-    scaler = GradScaler(enabled=device.type == "cuda")
+    scaler = GradScaler(device.type, enabled=device.type == "cuda")
     ema = EMA(model, decay=args.ema_decay)
 
     start_iter = 0
@@ -187,7 +187,7 @@ def main() -> None:
         gt = batch["gt"].to(device, non_blocking=True)
 
         optim.zero_grad(set_to_none=True)
-        with autocast(enabled=device.type == "cuda", dtype=torch.bfloat16):
+        with autocast(device_type=device.type, enabled=device.type == "cuda", dtype=torch.bfloat16):
             pred = model(deg)
             if pred.shape[-2:] != gt.shape[-2:]:
                 pred = torch.nn.functional.interpolate(
