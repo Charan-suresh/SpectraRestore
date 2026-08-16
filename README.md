@@ -2,7 +2,7 @@
 
 ## AI restoration for semiconductor inspection
 
-**SEMICON India Hackathon 2026 · KLA PS01**
+**SEMICON India Hackathon 2026 
 
 SpectraRestore restores degraded semiconductor inspection images by solving two tasks together: **denoising** and **2× super-resolution**. Given a noisy, low-resolution grayscale image, the model produces a cleaner image at twice the width and height while preserving fine repeating patterns, edges, and defect-relevant detail.
 
