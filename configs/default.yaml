@@ -1,5 +1,5 @@
 # SpectraRestore default training config
-preset: default          # default | fast | tiny
+preset: default          # default | fast | tiny | large
 data_root: data
 out_dir: weights
 

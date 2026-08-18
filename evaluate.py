@@ -31,6 +31,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.model import build_model
+from src.image_io import image_storage_dtype, normalize_image_array
 
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".npy"}
 
@@ -38,15 +39,12 @@ IMG_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".npy"}
 def load_gray(path: Path) -> np.ndarray:
     suffix = path.suffix.lower()
     if suffix == ".npy":
-        arr = np.load(path).astype(np.float32)
+        arr = normalize_image_array(np.load(path))
     else:
         from PIL import Image
 
-        arr = np.asarray(Image.open(path), dtype=np.float32)
-        if arr.max() > 1.5 and arr.max() <= 255:
-            arr = arr / 255.0
-        elif arr.max() > 255:
-            arr = arr / 65535.0
+        with Image.open(path) as image:
+            arr = normalize_image_array(np.asarray(image))
     if arr.ndim == 3:
         if arr.shape[-1] in (3, 4):
             arr = 0.2989 * arr[..., 0] + 0.5870 * arr[..., 1] + 0.1140 * arr[..., 2]
@@ -55,7 +53,7 @@ def load_gray(path: Path) -> np.ndarray:
     return arr.astype(np.float32)
 
 
-def save_gray(path: Path, arr: np.ndarray) -> None:
+def save_gray(path: Path, arr: np.ndarray, output_dtype: str = "auto", source_dtype: np.dtype | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     arr = np.clip(arr, 0.0, 1.0)
     if path.suffix.lower() == ".npy":
@@ -63,7 +61,23 @@ def save_gray(path: Path, arr: np.ndarray) -> None:
         return
     from PIL import Image
 
-    img = Image.fromarray((arr * 255.0 + 0.5).astype(np.uint8))
+    if output_dtype == "float32":
+        if path.suffix.lower() not in {".tif", ".tiff"}:
+            raise ValueError("float32 output is supported only for .npy, .tif, or .tiff files")
+        Image.fromarray(arr.astype(np.float32)).save(path)
+        return
+    if output_dtype == "auto":
+        output_dtype = (
+            "uint16"
+            if source_dtype is not None
+            and np.issubdtype(source_dtype, np.unsignedinteger)
+            and source_dtype.itemsize > 1
+            else "uint8"
+        )
+    if output_dtype == "uint16":
+        img = Image.fromarray((arr * 65535.0 + 0.5).astype(np.uint16))
+    else:
+        img = Image.fromarray((arr * 255.0 + 0.5).astype(np.uint8))
     img.save(path)
 
 
@@ -124,6 +138,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--preset", type=str, default="", help="Override model preset (default/fast/tiny)")
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--ext", type=str, default="", help="Force output extension (e.g. .png). Default: keep input ext.")
+    p.add_argument("--output_dtype", choices=["auto", "uint8", "uint16", "float32"], default="auto", help="Output precision; auto preserves 16-bit raster inputs and writes NPY as float32.")
     return p.parse_args()
 
 
@@ -165,6 +180,7 @@ def main() -> None:
     total_s = 0.0
     for i, path in enumerate(images, 1):
         arr = load_gray(path)
+        source_dtype = image_storage_dtype(path)
         t0 = time.perf_counter()
         restored = restore_image(model, arr, device)
         if device.type == "cuda":
@@ -183,7 +199,7 @@ def main() -> None:
                 out_path = out_dir / rel.parent / out_name
         except ValueError:
             pass
-        save_gray(out_path, restored)
+        save_gray(out_path, restored, args.output_dtype, source_dtype)
         if i == 1 or i % 20 == 0 or i == len(images):
             print(f"  [{i}/{len(images)}] {path.name} → {out_path.name}  shape={restored.shape}")
 

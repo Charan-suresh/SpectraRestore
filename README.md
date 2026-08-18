@@ -84,13 +84,15 @@ data/
 
 The loader also accepts `lq/hq`, `input/target`, and flat `*_lq` / `*_hq` pairs. The official KLA dataset is available [here](https://drive.google.com/drive/folders/1VKiFW-kDk9-q5XRPu3nrl08OM94EwzV6).
 
+Paired files must have exactly the expected 2× spatial relationship. The loader stops on a mismatch to prevent training on incorrectly aligned labels; use `--resize_misaligned_gt` only for deliberately preprocessed data. PNG and TIFF integer inputs are normalized using their storage dtype (`uint8` / `uint16`), while floating-point NPY arrays retain their supplied range.
+
 ## Train
 
 ```bash
-python -m src.train --data_root data --preset default --batch_size 8 --iters 200000 --out_dir weights
+python -m src.train --config configs/default.yaml
 ```
 
-`weights/best.pt` contains the best validation EMA checkpoint. `weights/last_ema.pt` is the most recent shippable checkpoint.
+CLI options override YAML values, for example: `python -m src.train --config configs/default.yaml --batch_size 4`. `weights/best.pt` contains the best validation EMA checkpoint. `weights/last_ema.pt` is the most recent shippable checkpoint.
 
 ## KLA-compatible inference
 
@@ -98,7 +100,7 @@ python -m src.train --data_root data --preset default --batch_size 8 --iters 200
 python evaluate.py --input_dir <test_images> --output_dir outputs --weights weights/best.pt
 ```
 
-The standalone evaluator accepts PNG, JPEG, TIFF, BMP, and NPY inputs. It preserves filenames and writes restored outputs to the requested folder, supporting safe image-to-image matching during evaluation.
+The standalone evaluator accepts PNG, JPEG, TIFF, BMP, and NPY inputs. It preserves filenames and writes restored outputs to the requested folder, supporting safe image-to-image matching during evaluation. `--output_dtype auto` preserves 16-bit precision for 16-bit raster inputs; use `--output_dtype uint8` only when the submission format requires it.
 
 ## Validate the environment
 

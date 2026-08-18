@@ -17,6 +17,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import yaml
 from torch.amp import GradScaler, autocast
 
 # allow `python -m src.train` and `python src/train.py`
@@ -82,7 +83,8 @@ def validate(model: nn.Module, loader, device: torch.device, use_lpips: bool = T
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train SpectraRestore (NAFNet-SR2×)")
-    p.add_argument("--data_root", type=str, required=True, help="Dataset root with train/ and val/")
+    p.add_argument("--config", type=str, default="", help="Optional YAML config; CLI arguments override its values.")
+    p.add_argument("--data_root", type=str, default="", help="Dataset root with train/ and val/")
     p.add_argument("--preset", type=str, default="default", choices=["default", "large", "fast", "tiny"])
     p.add_argument("--out_dir", type=str, default="weights")
     p.add_argument("--iters", type=int, default=200_000)
@@ -91,16 +93,37 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min_lr", type=float, default=1e-6)
     p.add_argument("--gt_crop", type=int, default=256)
     p.add_argument("--degrade_aug_p", type=float, default=0.3)
+    p.add_argument("--resize_misaligned_gt", action="store_true", help="Explicitly resize mismatched GT images instead of failing pair validation.")
     p.add_argument("--num_workers", type=int, default=4)
     p.add_argument("--val_every", type=int, default=2000)
     p.add_argument("--save_every", type=int, default=5000)
     p.add_argument("--log_every", type=int, default=100)
     p.add_argument("--ema_decay", type=float, default=0.999)
+    p.add_argument("--w_char", type=float, default=1.0)
+    p.add_argument("--w_ssim", type=float, default=0.2)
+    p.add_argument("--w_fft", type=float, default=0.05)
+    p.add_argument("--w_lpips", type=float, default=0.1)
+    p.add_argument("--lpips_warmup_frac", type=float, default=0.2)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--resume", type=str, default="")
     p.add_argument("--no_lpips", action="store_true")
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    return p.parse_args()
+    config_args, _ = p.parse_known_args()
+    if config_args.config:
+        with open(config_args.config) as f:
+            config = yaml.safe_load(f) or {}
+        loss = config.pop("loss", {})
+        if not isinstance(config, dict) or not isinstance(loss, dict):
+            p.error("Config must contain mappings for top-level options and optional loss options.")
+        config.update(loss)
+        unknown = set(config) - {a.dest for a in p._actions}
+        if unknown:
+            p.error(f"Unknown config option(s): {', '.join(sorted(unknown))}")
+        p.set_defaults(**config)
+    args = p.parse_args()
+    if not args.data_root:
+        p.error("--data_root is required (directly or through --config).")
+    return args
 
 
 def main() -> None:
@@ -120,6 +143,7 @@ def main() -> None:
         num_workers=args.num_workers,
         gt_crop=args.gt_crop,
         degrade_aug_p=args.degrade_aug_p,
+        resize_misaligned_gt=args.resize_misaligned_gt,
     )
     try:
         val_loader = make_dataloader(
@@ -129,6 +153,7 @@ def main() -> None:
             num_workers=max(1, args.num_workers // 2),
             gt_crop=args.gt_crop,
             degrade_aug_p=0.0,
+            resize_misaligned_gt=args.resize_misaligned_gt,
             shuffle=False,
         )
     except FileNotFoundError:
@@ -139,6 +164,11 @@ def main() -> None:
     print(f"[train] model={args.preset}  params={model.num_params()/1e6:.2f}M  device={device}")
 
     criterion = CompositeRestoreLoss(
+        w_char=args.w_char,
+        w_ssim=args.w_ssim,
+        w_fft=args.w_fft,
+        w_lpips=args.w_lpips,
+        lpips_warmup_frac=args.lpips_warmup_frac,
         total_iters=args.iters,
         use_lpips=not args.no_lpips,
     ).to(device)

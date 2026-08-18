@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.losses import CompositeRestoreLoss
 from src.model import build_model
+from src.dataset import PairedRestoreDataset, _load_gray
+from evaluate import load_gray, save_gray
 
 
 def main() -> None:
@@ -48,6 +50,32 @@ def main() -> None:
     # save a tiny checkpoint and run evaluate.py round-trip
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
+
+        # Regression: scale low-valued 16-bit TIFFs by dtype range, not observed max.
+        dark16 = tmp / "dark16.tiff"
+        Image.fromarray(np.array([[100]], dtype=np.uint16)).save(dark16)
+        expected = 100 / 65535
+        assert np.isclose(_load_gray(dark16)[0, 0], expected), "dataset 16-bit scaling failed"
+        assert np.isclose(load_gray(dark16)[0, 0], expected), "inference 16-bit scaling failed"
+        uint16_npy = tmp / "dark16.npy"
+        np.save(uint16_npy, np.array([[100]], dtype=np.uint16))
+        assert np.isclose(_load_gray(uint16_npy)[0, 0], expected), "dataset NPY scaling failed"
+        assert np.isclose(load_gray(uint16_npy)[0, 0], expected), "inference NPY scaling failed"
+        save_gray(tmp / "roundtrip.tiff", np.array([[expected]], dtype=np.float32), source_dtype=np.dtype("uint16"))
+        assert np.asarray(Image.open(tmp / "roundtrip.tiff")).dtype == np.uint16, "16-bit output was not preserved"
+
+        # Regression: pair geometry must be valid unless resizing is explicitly requested.
+        pair_root = tmp / "pairs" / "train"
+        (pair_root / "degraded").mkdir(parents=True)
+        (pair_root / "gt").mkdir()
+        Image.fromarray(np.zeros((8, 8), dtype=np.uint8)).save(pair_root / "degraded" / "bad.png")
+        Image.fromarray(np.zeros((15, 16), dtype=np.uint8)).save(pair_root / "gt" / "bad.png")
+        try:
+            PairedRestoreDataset(tmp / "pairs", gt_crop=16)[0]
+            raise AssertionError("misaligned pair was accepted")
+        except ValueError as error:
+            assert "Misaligned pair" in str(error)
+
         ckpt = tmp / "tiny.pt"
         torch.save({"model": model.state_dict(), "preset": "tiny"}, ckpt)
 

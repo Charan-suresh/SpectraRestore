@@ -186,6 +186,14 @@ class SpectraRestore(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
+        # Zero-initialize the final projection in the residual tail so that
+        # the network initially outputs the global residual skip (bilinear baseline)
+        if hasattr(self, "up_tail") and len(self.up_tail) > 0:
+            last_conv = self.up_tail[-1]
+            if isinstance(last_conv, nn.Conv2d):
+                nn.init.zeros_(last_conv.weight)
+                if last_conv.bias is not None:
+                    nn.init.zeros_(last_conv.bias)
 
     @staticmethod
     def _per_image_stats(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

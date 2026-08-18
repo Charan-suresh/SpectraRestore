@@ -27,6 +27,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from src.image_io import normalize_image_array
+
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".npy", ".npz", ".pt"}
 
 
@@ -34,25 +36,18 @@ def _load_gray(path: Path) -> np.ndarray:
     """Load a grayscale image as float32, preserving native range (no forced [0,1] clip)."""
     suffix = path.suffix.lower()
     if suffix == ".npy":
-        arr = np.load(path).astype(np.float32)
+        arr = normalize_image_array(np.load(path))
     elif suffix in {".npz", ".pt"}:
         t = torch.load(path, map_location="cpu", weights_only=True)
-        arr = t.numpy().astype(np.float32) if isinstance(t, torch.Tensor) else np.asarray(t, dtype=np.float32)
+        raw = t.numpy() if isinstance(t, torch.Tensor) else np.asarray(t)
+        arr = normalize_image_array(raw)
     else:
         try:
             from PIL import Image
         except ImportError as e:
             raise ImportError("Pillow is required to load image files") from e
-        img = Image.open(path)
-        arr = np.asarray(img, dtype=np.float32)
-        # Keep 16-bit / high-bit images in their native numeric range; only
-        # scale typical 8-bit imagery into a float range for training convenience.
-        if arr.dtype == np.uint8 or arr.max() > 1.5 and arr.max() <= 255:
-            arr = arr / 255.0
-        elif arr.max() > 255:
-            # 16-bit-ish — scale by max of dtype if known, else leave as-is for GT in [0,1]
-            if arr.max() <= 65535:
-                arr = arr / 65535.0
+        with Image.open(path) as img:
+            arr = normalize_image_array(np.asarray(img))
 
     if arr.ndim == 3:
         # take first channel / luminance
@@ -244,6 +239,7 @@ class PairedRestoreDataset(Dataset):
         scale: int = 2,
         degrade_aug_p: float = 0.3,
         geometric_aug: bool = True,
+        resize_misaligned_gt: bool = False,
         transform: Callable | None = None,
     ):
         self.root = Path(root)
@@ -252,6 +248,7 @@ class PairedRestoreDataset(Dataset):
         self.scale = scale
         self.degrade_aug_p = degrade_aug_p if split == "train" else 0.0
         self.geometric_aug = geometric_aug and split == "train"
+        self.resize_misaligned_gt = resize_misaligned_gt
         self.transform = transform
 
         split_root = self.root / split if (self.root / split).is_dir() else self.root
@@ -271,9 +268,16 @@ class PairedRestoreDataset(Dataset):
         deg = _load_gray(deg_path)
         gt = _load_gray(gt_path)
 
-        # If sizes aren't exactly scale-related, resize GT to match scale×deg
+        # Pair alignment is a data invariant. Resizing is only an explicit opt-in
+        # compatibility path for preprocessed datasets.
         expected_h, expected_w = deg.shape[0] * self.scale, deg.shape[1] * self.scale
         if gt.shape[0] != expected_h or gt.shape[1] != expected_w:
+            if not self.resize_misaligned_gt:
+                raise ValueError(
+                    f"Misaligned pair: {deg_path} is {deg.shape}, but {gt_path} is {gt.shape}; "
+                    f"expected target shape {(expected_h, expected_w)} for scale={self.scale}. "
+                    "Fix the dataset or enable resize_misaligned_gt explicitly."
+                )
             from PIL import Image
 
             gt_img = Image.fromarray(gt)
@@ -304,6 +308,7 @@ def make_dataloader(
     num_workers: int = 4,
     gt_crop: int = 256,
     degrade_aug_p: float = 0.3,
+    resize_misaligned_gt: bool = False,
     shuffle: bool | None = None,
 ) -> torch.utils.data.DataLoader:
     from torch.utils.data import DataLoader
@@ -313,6 +318,7 @@ def make_dataloader(
         split=split,
         gt_crop=gt_crop,
         degrade_aug_p=degrade_aug_p,
+        resize_misaligned_gt=resize_misaligned_gt,
     )
     if shuffle is None:
         shuffle = split == "train"
