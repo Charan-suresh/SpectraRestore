@@ -20,19 +20,16 @@ ROOT = Path(__file__).resolve().parents[1]
 def check_submission_artifacts(root: Path = ROOT) -> Tuple[bool, Dict[str, bool]]:
     """Verify presence of all mandatory submission files."""
     checklist = {
-        "README.md": (root / "README.md").is_file(),
-        "train.py": (root / "src" / "train.py").is_file(),
-        "evaluate.py": (root / "evaluate.py").is_file(),
+        "run.py": (root / "run.py").is_file(),
         "requirements.txt": (root / "requirements.txt").is_file(),
-        "weights/*.pt": len(list((root / "weights").glob("*.pt"))) > 0 if (root / "weights").is_dir() else False,
-        "outputs/": (root / "outputs").is_dir() and len(list((root / "outputs").glob("*"))) > 0,
-        "visual_evidence.png": (root / "outputs" / "visual_evidence.png").is_file(),
-        "reproducibility.txt": (root / "outputs" / "reproducibility.txt").is_file(),
-        "train_config.json": (
-            (root / "weights" / "train_config.json").is_file()
-            or (root / "outputs" / "train_config.json").is_file()
-            or (root / "configs" / "default.yaml").is_file()
+        "README.md": (root / "README.md").is_file(),
+        "models/*.pt": (
+            (len(list((root / "models").glob("*.pt"))) > 0 if (root / "models").is_dir() else False)
+            or (len(list((root / "weights").glob("*.pt"))) > 0 if (root / "weights").is_dir() else False)
         ),
+        "src/model.py": (root / "src" / "model.py").is_file(),
+        "src/train.py": (root / "src" / "train.py").is_file(),
+        "evaluate.py": (root / "evaluate.py").is_file(),
     }
 
     all_passed = all(checklist.values())

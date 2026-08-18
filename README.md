@@ -94,18 +94,77 @@ python -m src.train --config configs/default.yaml
 
 CLI options override YAML values, for example: `python -m src.train --config configs/default.yaml --batch_size 4`. `weights/best.pt` contains the best validation EMA checkpoint. `weights/last_ema.pt` is the most recent shippable checkpoint.
 
-## KLA-compatible inference
+## Quick Start & Submission Evaluation
+
+To run the full restoration pipeline using the official submission entrypoint:
 
 ```bash
-python evaluate.py --input_dir <test_images> --output_dir outputs --weights weights/best.pt
+python run.py <input-dir> <output-dir>
 ```
 
-The standalone evaluator accepts PNG, JPEG, TIFF, BMP, and NPY inputs. It preserves filenames and writes restored outputs to the requested folder, supporting safe image-to-image matching during evaluation. `--output_dtype auto` preserves 16-bit precision for 16-bit raster inputs; use `--output_dtype uint8` only when the submission format requires it.
+Example:
+```bash
+python run.py data/val/degraded outputs/
+```
 
-## Validate the environment
+### Technical Submission Checklist
+
+| Requirement | Implementation & Guarantee |
+|---|---|
+| **Entry Script** | `python run.py <input-dir> <output-dir>` (supports positional args and flags). |
+| **Input Format** | Reads all `.npy` files from `<input-dir>`. Supports `(H, W)`, `(H, W, 1)`, and multi-channel arrays. |
+| **Output Directory** | Automatically created if it does not already exist. |
+| **File Matching** | Generates exactly one `.npy` file per input file with identical filename. |
+| **Output Format & Range** | Grayscale 2D float32 arrays with values strictly within `[0.0, 1.0]`. |
+| **Data Integrity** | Zero `NaN` and zero `Inf` values guaranteed via post-processing validation. |
+| **Target Resolution** | Exact 2× super-resolution: restored shape is `(2*H, 2*W)`. |
+| **Model Weights** | Self-contained weights included in `models/` (auto-loaded with zero manual config). |
+| **Hardware & Environment** | Runs offline on NVIDIA GPU (with clean CPU fallback) without requiring internet access, API keys, or manual downloads. |
+| **Dependencies** | All packages and versions specified in `requirements.txt`. |
+
+### Submission Folder Structure
+
+```text
+SpectraRestore/
+├── run.py                 # Primary entrypoint for evaluation: python run.py <input-dir> <output-dir>
+├── requirements.txt       # Python package dependencies with version constraints
+├── README.md              # Technical documentation and execution guide
+├── models/                # Trained model checkpoints
+│   ├── best.pt            # Best model weights (auto-loaded)
+│   └── last_ema.pt        # Exponential moving average weights
+├── src/                   # Core architecture and processing modules
+│   ├── model.py           # NAFNet-SR2x architecture definition
+│   ├── image_io.py        # Image array normalisation and dtype handling
+│   ├── dataset.py         # Paired dataset loading and augmentation
+│   ├── losses.py          # Composite restoration loss functions
+│   ├── metrics.py         # Evaluation metrics (PSNR, SSIM, LPIPS)
+│   └── train.py           # Model training pipeline
+├── configs/               # YAML configuration presets
+└── scripts/               # Utility scripts (smoke test, preflight validator, packaging)
+```
+
+## Setup
 
 ```bash
-python -m src.model
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+## Validate the Environment
+
+Run the end-to-end smoke test to verify model execution, geometry, and `run.py` CLI compliance:
+
+```bash
 python scripts/smoke_test.py
 ```
+
+## Training
+
+```bash
+python -m src.train --config configs/default.yaml
+```
+
+CLI options override YAML values, for example: `python -m src.train --config configs/default.yaml --batch_size 4`. Trained weights are saved directly to `models/best.pt` and `models/last_ema.pt`.
+
 

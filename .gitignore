@@ -3,7 +3,8 @@ __pycache__/
 *.pyc
 .DS_Store
 .firecrawl/
-weights/*.pt
+weights/ckpt_*.pt
+models/ckpt_*.pt
 outputs/
 *.egg-info/
 .ipynb_checkpoints/

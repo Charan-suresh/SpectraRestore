@@ -88,6 +88,9 @@ def resolve_weights(explicit: str | None) -> Path:
             raise FileNotFoundError(f"Weights not found: {p}")
         return p
     candidates = [
+        ROOT / "models" / "best.pt",
+        ROOT / "models" / "model.pt",
+        ROOT / "models" / "last_ema.pt",
         ROOT / "weights" / "best.pt",
         ROOT / "weights" / "last_ema.pt",
         ROOT / "weights" / "model.pt",
@@ -95,8 +98,13 @@ def resolve_weights(explicit: str | None) -> Path:
     for c in candidates:
         if c.is_file():
             return c
+    for folder in [ROOT / "models", ROOT / "weights"]:
+        if folder.is_dir():
+            pts = sorted(folder.glob("*.pt"))
+            if pts:
+                return pts[0]
     raise FileNotFoundError(
-        "No weights found. Place a checkpoint at weights/best.pt "
+        "No weights found. Place a checkpoint at models/best.pt or weights/best.pt "
         "or pass --weights <path>."
     )
 

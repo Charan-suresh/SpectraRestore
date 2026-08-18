@@ -90,18 +90,34 @@ def main() -> None:
         # also a clipped png for PIL path
         Image.fromarray((np.clip(arr, 0, 1) * 255).astype(np.uint8)).save(in_dir / "sample.png")
 
-        from evaluate import load_checkpoint, restore_image, resolve_weights
-        # direct call rather than subprocess
-        state, preset = load_checkpoint(ckpt, device)
-        m2 = build_model(preset).to(device)
-        m2.load_state_dict(state)
-        m2.eval()
-        restored = restore_image(m2, arr, device)
-        assert restored.shape == (256, 256), restored.shape
-        print(f"[smoke] evaluate path OK  restored={restored.shape}  range=[{restored.min():.3f},{restored.max():.3f}]")
+        # Regression: CLI run.py test with .npy files
+        import subprocess
+
+        cli_in = tmp / "cli_in"
+        cli_out = tmp / "cli_out"
+        cli_in.mkdir()
+        np.save(cli_in / "sample_001.npy", arr)
+        np.save(cli_in / "sample_002.npy", (arr * 0.8) + 0.1)
+
+        # Execute run.py as a subprocess: python run.py <input-dir> <output-dir>
+        cmd = [sys.executable, str(ROOT / "run.py"), str(cli_in), str(cli_out), "--weights", str(ckpt)]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        assert res.returncode == 0, f"run.py failed with stdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+
+        # Validate KLA compliance on all generated outputs
+        for in_f in cli_in.glob("*.npy"):
+            out_f = cli_out / in_f.name
+            assert out_f.is_file(), f"Missing output file: {out_f}"
+            out_arr = np.load(out_f)
+            assert out_arr.shape == (256, 256), f"Wrong output shape: {out_arr.shape}"
+            assert not np.isnan(out_arr).any(), f"NaN in output {out_f.name}"
+            assert not np.isinf(out_arr).any(), f"Inf in output {out_f.name}"
+            assert out_arr.min() >= 0.0 and out_arr.max() <= 1.0, f"Range violation: [{out_arr.min()}, {out_arr.max()}]"
+        print(f"[smoke] run.py CLI test OK  verified {len(list(cli_in.glob('*.npy')))} .npy outputs")
 
     print("[smoke] ALL PASSED")
 
 
 if __name__ == "__main__":
     main()
+
